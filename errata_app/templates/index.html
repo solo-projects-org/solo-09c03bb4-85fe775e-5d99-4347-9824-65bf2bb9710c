@@ -21,6 +21,17 @@
   </form>
 </div>
 
+<div class="card" style="border-left:4px solid var(--brand)">
+  <h2 style="margin-top:0">抽测包：带标准答案的错例 JSON</h2>
+  <p class="muted" style="margin:6px 0 12px">
+    勾选至多 4 张现有数据表作为真值，分别填写“错一格 / 错两格”名额（每档 0..24 份）。
+    每个错格沿用一位数字误识规则；模拟识别表按尺寸与格值整包去重。
+    凑齐各档名额后可下载 JSON，内含来源表号、模拟识别表、真值行列合计，
+    以及各错格坐标、原值与误识值；凑不齐时显示每档最多能生成的份数。
+  </p>
+  <a class="btn" href="{{ url_for('sampling_builder') }}">进入抽测包</a>
+</div>
+
 <h2>已上传数据集</h2>
 {% if datasets %}
 <table class="data">

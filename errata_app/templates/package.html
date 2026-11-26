@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}抽测包预检 · 勘误凭据管理{% endblock %}
+{% block head %}
+<style>
+  .ok-text { color:var(--ok); font-weight:700; }
+  .bad-text { color:var(--err); font-weight:700; }
+  table.summary td.num, table.summary th.num { text-align:center; }
+  .mini-grid { font-family:ui-monospace,Menlo,Consolas,monospace;
+               font-size:12px; color:var(--ink); white-space:nowrap; }
+  .err-desc { font-size:12.5px; }
+  .case-table td { vertical-align:top; }
+  .dl-btn { font-size:16px; padding:11px 22px; }
+</style>
+{% endblock %}
+{% block body %}
+<h1>抽测包预检结果</h1>
+<p>
+  <a href="{{ url_for('sampling_builder') }}">← 重新选择名额组包</a>
+</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div class="flash {{ category }}">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card">
+  <h2 style="margin-top:0">
+    {% if doc.complete %}
+      <span class="ok-text">✓ 各档名额已全部凑齐</span>
+    {% else %}
+      <span class="bad-text">✗ 部分档位凑不齐，暂不提供 JSON 下载</span>
+    {% endif %}
+  </h2>
+  <p class="muted" style="margin:4px 0 14px">
+    抽测包编号 <span class="mono">{{ token[:12] }}</span>
+    ｜选表 {{ doc.selected_table_count }} 张
+    ｜名额合计 {{ doc.total_quota }} 份
+    ｜实际生成 <strong>{{ doc.case_count }}</strong> 例
+    ｜去重口径：行数 + 列数 + 全部格值（整包去重）
+  </p>
+
+  {% if doc.complete %}
+    <a class="btn dl-btn"
+       href="{{ url_for('sampling_download', token=token) }}">
+      ⬇ 下载标准答案 JSON（{{ doc.case_count }} 例）
+    </a>
+    <p class="muted" style="margin-top:10px">
+      也可用接口直接取：<span class="mono">GET
+      {{ url_for('sampling_download', token=token) }}?format=json</span>
+    </p>
+  {% else %}
+    <div class="flash error" style="margin-bottom:0">
+      请按下表“名额内最多可生成”的数量调小对应档位名额后重新组包；
+      凑齐后本页才会出现 JSON 下载按钮。直接访问下载地址也会被拒绝（HTTP 409）。
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">各档名额与最多可生成数量</h2>
+  <table class="data summary">
+    <thead>
+      <tr>
+        <th>来源表号</th><th>名称</th><th>尺寸</th><th>档位</th>
+        <th class="num">申请名额</th>
+        <th class="num">误识规则下<br>不重复表总数</th>
+        <th class="num">名额限制内<br>最多可生成</th>
+        <th class="num">整包去重后<br>本次实得</th>
+        <th class="num">状态</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in doc.summary %}
+      <tr>
+        <td>#{{ s.dataset_id }}</td>
+        <td>{{ s.name }}</td>
+        <td class="num">{{ s.rows }}×{{ s.cols }}</td>
+        <td>{{ s.tier_label }}</td>
+        <td class="num">{{ s.quota }}</td>
+        <td class="num">{{ s.capacity }}</td>
+        <td class="num"><strong>{{ s.max_within_quota }}</strong></td>
+        <td class="num">{{ s.generated }}</td>
+        <td class="num">
+          {% if s.quota == 0 %}
+            <span class="badge valid">未申请</span>
+          {% elif s.complete %}
+            <span class="badge valid">已凑齐</span>
+          {% elif s.generated >= s.max_within_quota %}
+            <span class="badge contradiction">名额内最多 {{ s.max_within_quota }} 份</span>
+          {% else %}
+            <span class="badge counterexample">整包竞争后本包实得 {{ s.generated }} 份</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">
+    “误识规则下不重复表总数 / 名额内最多可生成”只取决于该真值表与档位；
+    若多张底表能生成相同的模拟识别表，整包去重会让“本次实得”略少，
+    系统已通过联合分配尽量保证各底表、各档位都分到且不重复。
+  </p>
+</div>
+
+{% if doc.cases %}
+<div class="card">
+  <h2 style="margin-top:0">错例预览（共 {{ doc.cases | length }} 例）</h2>
+  <table class="data case-table">
+    <thead>
+      <tr>
+        <th>#</th><th>来源</th><th>档位</th>
+        <th>模拟识别表（JSON 中为二维数组）</th>
+        <th>错格：坐标 原值→误识值</th>
+        <th>真值行/列合计</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in doc.cases %}
+      <tr>
+        <td class="num">{{ c.case_no }}</td>
+        <td class="num">#{{ c.source_dataset_id }}</td>
+        <td>{{ c.tier_label }}</td>
+        <td class="mini-grid">
+          {% for row in c.simulated_recognition_grid %}
+            [{% for v in row %}{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}]<br>
+          {% endfor %}
+        </td>
+        <td class="err-desc">
+          {% for e in c.error_cells %}
+            第{{ e.row }}行第{{ e.column }}列：
+            <span class="strike">{{ e.truth_value }}</span>
+            → <strong>{{ e.misrecognized_value }}</strong>
+            {% if not loop.last %}<br>{% endif %}
+          {% endfor %}
+        </td>
+        <td class="mini-grid">
+          行：{{ c.row_totals | join(', ') }}<br>
+          列：{{ c.column_totals | join(', ') }}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -55,10 +55,12 @@
               padding:10px 14px; margin:10px 0; }
     .strike { text-decoration:line-through; color:var(--err); }
   </style>
+  {% block head %}{% endblock %}
 </head>
 <body>
 <header>
   <a href="{{ url_for('index') }}">数据集</a>
+  <a href="{{ url_for('sampling_builder') }}">抽测包</a>
   <a href="{{ url_for('voucher_list') }}">勘误凭据</a>
   <span style="float:right;opacity:.85">地方志年鉴勘误凭据系统</span>
 </header>

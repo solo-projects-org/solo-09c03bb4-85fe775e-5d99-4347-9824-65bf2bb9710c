@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}抽测包 · 勘误凭据管理{% endblock %}
+{% block head %}
+<style>
+  .sampling-table input[type=number] { min-width:84px; width:96px; }
+  .sampling-table td.num, .sampling-table th.num { text-align:center; }
+  .sampling-table tr.locked { opacity:.55; }
+  .hint-max { font-size:12px; color:var(--muted); }
+  .pick-count { font-weight:700; }
+  .pick-count.over { color:var(--err); }
+</style>
+{% endblock %}
+{% block body %}
+<h1>抽测包：按档生成带标准答案的错例</h1>
+<p><a href="{{ url_for('index') }}">← 返回数据集列表</a></p>
+
+{% if form_error %}
+  <div class="flash error">{{ form_error }}</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">第一步：选择真值表并填写各档名额</h2>
+  <p class="muted">
+    最多选 <strong>{{ max_tables }}</strong> 张现有数据表；每张表分别填写
+    “错一格”“错两格”要几份，每档 <strong>{{ tier_min }}..{{ tier_max }}</strong> 份。
+    选中的数据表其格值即作为<strong>真值</strong>，行列合计由真值表直接求和
+    （与是否已录入核准合计无关）。
+  </p>
+
+  {% if datasets %}
+  <form method="post" action="{{ url_for('sampling_build') }}" id="sampling-form">
+    <table class="data sampling-table">
+      <thead>
+        <tr>
+          <th class="num">选入</th>
+          <th>#</th>
+          <th>名称</th>
+          <th>规模</th>
+          <th class="num">错一格份数<br><span class="hint-max">{{ tier_min }}..{{ tier_max }}</span></th>
+          <th class="num">错两格份数<br><span class="hint-max">{{ tier_min }}..{{ tier_max }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in datasets %}
+        {% set sid = d.id | string %}
+        {% set checked_ids = request.form.getlist('table_ids') %}
+        {% set is_checked = (sid in checked_ids)
+           or (request.form.get('one_' ~ d.id, '') not in ['', '0'])
+           or (request.form.get('two_' ~ d.id, '') not in ['', '0']) %}
+        <tr data-row="{{ d.id }}" class="{{ '' if is_checked else 'locked' }}">
+          <td class="num">
+            <input type="checkbox" name="table_ids" value="{{ d.id }}"
+                   class="pick-box" {{ 'checked' if is_checked else '' }}
+                   aria-label="选择数据表 #{{ d.id }}">
+          </td>
+          <td>{{ d.id }}</td>
+          <td>{{ d.name }}</td>
+          <td class="num">{{ d.rows_n }}×{{ d.cols_n }}</td>
+          <td class="num">
+            <input type="number" min="{{ tier_min }}" max="{{ tier_max }}"
+                   step="1" name="one_{{ d.id }}"
+                   value="{{ request.form.get('one_' ~ d.id, '0') or '0' }}"
+                   data-tier="1" data-id="{{ d.id }}">
+            <div class="hint-max" data-cap-for="one_{{ d.id }}">
+              名额内最多可生成 <strong>{{ d.max_one }}</strong> 份
+              （规则上限 {{ d.cap_one }}）
+            </div>
+          </td>
+          <td class="num">
+            <input type="number" min="{{ tier_min }}" max="{{ tier_max }}"
+                   step="1" name="two_{{ d.id }}"
+                   value="{{ request.form.get('two_' ~ d.id, '0') or '0' }}"
+                   data-tier="2" data-id="{{ d.id }}">
+            <div class="hint-max" data-cap-for="two_{{ d.id }}">
+              名额内最多可生成 <strong>{{ d.max_two }}</strong> 份
+              （规则上限 {{ d.cap_two }}）
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <p class="muted">
+      已选 <span id="pick-count" class="pick-count">0</span> / {{ max_tables }} 张；
+      直接把某档名额改成大于 0 会自动勾选该行。
+    </p>
+    <p>
+      <button type="submit">生成抽测包并预检</button>
+    </p>
+    <p class="muted">
+      生成后先进入预检页：各档名额全部凑齐才会出现 JSON 下载；凑不齐时会列出
+      每档在 {{ tier_min }}..{{ tier_max }} 名额限制内最多能生成多少份。
+    </p>
+  </form>
+  {% else %}
+  <p class="muted">
+    还没有可用的数据表。请先到<a href="{{ url_for('index') }}">首页</a>
+    上传 CSV 或载入 3×3 / 4×4 样例，再回来组包。
+  </p>
+  <form method="post" action="{{ url_for('load_sample') }}" class="inline">
+    <button type="submit" name="sample" value="sample3x3" class="secondary">载入 3×3 样例</button>
+    <button type="submit" name="sample" value="sample4x4" class="secondary">载入 4×4 样例</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">生成与去重规则</h2>
+  <ol class="muted" style="padding-left:20px;margin-bottom:0">
+    <li>“错一格”= 恰好 1 个格发生一位数字误识；“错两格”= 恰好 2 个格各发生一位数字误识（位数不变，多位数首位不得变 0）。</li>
+    <li>模拟识别表按“行数 + 列数 + 全部格值”在<strong>整个抽测包范围内去重</strong>，即使来自不同底表或不同档位也不允许重复。</li>
+    <li>候选表按需流式生成，内存中只保留不超过所填名额总数的入选错例；4×4 底表（每档最多 24 份）也可流畅组包。</li>
+    <li>JSON 每例包含：来源表号、模拟识别表、真值表行列合计，以及每个错格的坐标（1 基与 0 基）、原值与误识值。</li>
+  </ol>
+</div>
+
+{% if datasets %}
+<script>
+(function () {
+  var MAX_TABLES = {{ max_tables }};
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.pick-box'));
+  var countEl = document.getElementById('pick-count');
+  var form = document.getElementById('sampling-form');
+
+  function selectedBoxes() { return boxes.filter(function (b) { return b.checked; }); }
+
+  function refreshRows() {
+    boxes.forEach(function (b) {
+      var row = b.closest('tr');
+      row.classList.toggle('locked', !b.checked);
+    });
+    var n = selectedBoxes().length;
+    countEl.textContent = n;
+    countEl.classList.toggle('over', n > MAX_TABLES);
+  }
+
+  boxes.forEach(function (b) {
+    b.addEventListener('change', function () {
+      if (b.checked && selectedBoxes().length > MAX_TABLES) {
+        b.checked = false;
+        alert('最多只能选 ' + MAX_TABLES + ' 张数据表。');
+      }
+      refreshRows();
+    });
+  });
+
+  // 名额 >0 自动勾选；名额非法/超界时在前端先夹取并提示由后端终验
+  form.querySelectorAll('input[type=number]').forEach(function (inp) {
+    inp.addEventListener('input', function () {
+      var v = inp.value.trim();
+      var n = v === '' ? 0 : Number(v);
+      var row = inp.closest('tr');
+      var box = row.querySelector('.pick-box');
+      if (n > 0 && !box.checked) {
+        if (selectedBoxes().length >= MAX_TABLES) {
+          alert('最多只能选 ' + MAX_TABLES + ' 张数据表，请先取消其它表。');
+          inp.value = '0';
+          return;
+        }
+        box.checked = true;
+      }
+      if (v !== '' && (!Number.isInteger(n) || n < 0 || n > 24)) {
+        inp.setCustomValidity('每档只能填 0..24 的整数');
+      } else {
+        inp.setCustomValidity('');
+      }
+      refreshRows();
+    });
+  });
+
+  form.addEventListener('submit', function (ev) {
+    if (selectedBoxes().length === 0) {
+      ev.preventDefault();
+      alert('请至少勾选一张数据表（或把某档名额填成大于 0）。');
+    }
+  });
+
+  refreshRows();
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS voucher_margins (
     value_at_cite INTEGER NOT NULL,         -- 引用瞬间的合计值（凭据快照）
     PRIMARY KEY (voucher_id, margin_id)
 );
+
+CREATE TABLE IF NOT EXISTS sampling_packages (
+    token        TEXT PRIMARY KEY,          -- 对外下载令牌（uuid hex）
+    complete     INTEGER NOT NULL,          -- 各档名额是否全部凑齐
+    case_count   INTEGER NOT NULL,
+    params_json  TEXT NOT NULL,             -- 提交的选择与名额
+    document_json TEXT NOT NULL,            -- build_package 的完整结果文档
+    created_at   TEXT NOT NULL
+);
 """
 
 
@@ -220,3 +229,30 @@ def list_vouchers(conn, dataset_id: int | None = None) -> list[sqlite3.Row]:
         "SELECT * FROM vouchers WHERE dataset_id = ? ORDER BY id DESC",
         (dataset_id,),
     ).fetchall()
+
+
+# --------------------------------------------------------------------------- #
+# 抽测包
+# --------------------------------------------------------------------------- #
+def save_sampling_package(conn, token: str, complete: bool, case_count: int,
+                          params: dict, document: dict) -> None:
+    conn.execute(
+        "INSERT INTO sampling_packages(token, complete, case_count, "
+        "params_json, document_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            token,
+            1 if complete else 0,
+            case_count,
+            json.dumps(params, ensure_ascii=False),
+            json.dumps(document, ensure_ascii=False),
+            now_iso(),
+        ),
+    )
+    conn.commit()
+
+
+def get_sampling_package(conn, token: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM sampling_packages WHERE token = ?", (token,)
+    ).fetchone()

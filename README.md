@@ -7,6 +7,12 @@
 **条目最少的一组合计**来证明拟改值，并把原值、拟改值与引用合计固化为
 SQLite 凭据。被引用合计一旦修改，凭据立即失效。
 
+此外，系统提供 **抽测包** 功能（导航栏“抽测包”，`/sampling`）：勾选至多 4 张
+现有数据表作为真值，按“错一格 / 错两格”两档各填 0..24 份名额，即可批量生成
+带标准答案的模拟识别错例。模拟表按“尺寸 + 格值”整包去重，凑齐名额才放行
+JSON 下载；凑不齐时逐档列出名额内最多可生成的份数。4×4 底表同样可组包，
+候选流式生成、内存中只保留不超过名额总数的入选错例。
+
 ## 判定规则（业务语义）
 
 1. **误识模型**：OCR 表与原书真表至多有两个格不同；每个不同的格恰好只错
@@ -24,13 +30,105 @@ SQLite 凭据。被引用合计一旦修改，凭据立即失效。
    被引用合计被修改（值确实变化）时，相关有效凭据在**同一数据库事务内**
    立即标记失效；未被引用合计的更正不影响任何凭据；以相同值重复保存不算修改。
 
+## 抽测包（带标准答案的错例 JSON）
+
+年鉴编校组试跑新纠错规则时，可用它批量造“已知答案”的错例。
+
+### 网页流程
+
+1. 首页或顶部导航进入 **抽测包**（<http://localhost:5000/sampling>）；
+2. 勾选至多 **4** 张现有数据表作为真值（名额填 >0 会自动勾选），
+   为每张表分别填写 **错一格 / 错两格** 份数，每档 **0..24**；
+3. 点“生成抽测包并预检”，跳到预检页：
+   - **全部凑齐** → 出现“下载标准答案 JSON”按钮；
+   - **凑不齐** → 每档列出“误识规则下不重复表总数 / 名额限制内最多可生成 /
+     整包去重后本次实得”，且页面没有下载入口，直接访问下载地址会被
+     重定向回预检页（JSON 客户端得到 `409`）；
+4. 按提示调小名额重新组包即可。
+
+### 规则与去重
+
+- “错一格 / 错两格”分别表示**恰好** 1 / 2 个格出错，每个错格严格只发生
+  **一位十进制数字误识**，直接复用 `solver.digit_neighbors`
+  （位数不变，多位数首位不得变 0）；
+- 去重键为 `(行数, 列数, 整表 10000 进制签名)`，在**整个抽测包范围内共享**，
+  跨底表、跨档位都不允许出现相同尺寸+相同格值的模拟识别表；
+- 多表竞争同一批候选（例如两张格值完全相同的底表）时，分配器用
+  **轮询座位 + 二分图增广（Kuhn）**做联合分配：既保证各底表、各档位尽量
+  都覆盖到，也能在名额联合可行时全部凑齐，不会被“先到先得”的顺序卡住。
+
+### 容量（“最多能生成多少份”）
+
+设某格值 `v` 的一位误识邻值个数为 `n(v)`（一位数为 9；`d` 位数为
+`8+9(d-1)`），则该真值表：
+
+- 错一格不重复表数 = `Σ n(v)`；
+- 错两格不重复表数 = `Σ_{格对 a<b} n(v_a)·n(v_b)`。
+
+例如 1×1 的 `0`：错一格最多 **9** 份、错两格 **0** 份（没有第二个格）。
+预检页“名额限制内最多可生成”即 `min(名额, 该容量)`。
+
+### 内存约束
+
+4×4 错两格全量候选约 14.7 万张，抽测包**不会**调用 `enumerate_candidates`
+整体物化：候选由 `sampling.mutation_stream` 逐张流式产生，增广过程只缓存
+`(去重键, 至多两个错格描述)` 这样的轻量条目；最终还原成表格并保留在内存 /
+SQLite 中的只有入选错例，数量 ≤ `4×2×24 = 192`。实测单张 4×4 申请
+24+24 份只枚举 48 个候选、约 0.05 秒；4 张相同 4×4 各申请 24+24
+（192 例、竞争最强）枚举约 756 个候选、约 0.1 秒。
+
+### JSON 格式（`errata-sampling-package/v1`）
+
+下载文件名 `errata_sampling_<token8>.json`。顶层含 `complete / limits /
+dedupe / summary / cases`（另附中文别名 `凑齐 / 错例清单`）。每个 `cases[]`：
+
+```jsonc
+{
+  "case_no": 1,
+  "source_dataset_id": 3, "source_table_no": 3, "来源表号": 3,
+  "source_table_name": "……",
+  "error_count": 2, "tier": "two_errors", "tier_label": "错两格",
+  "dimensions": {"rows": 3, "columns": 3},
+  "truth_grid": [[1200, 340, 260], "..."],        // 真值表（额外附带，便于自测）
+  "simulated_recognition_grid": [[2200, 340, 260], "..."], // 模拟识别表
+  "row_totals": [1800, 1750, 1140],               // 真值表行合计
+  "column_totals": [1950, 1740, 1000],            // 真值表列合计
+  "error_cells": [
+    {
+      "row": 1, "column": 1, "coordinate": [1, 1],        // 1 基坐标
+      "row_index": 0, "column_index": 0,                 // 0 基下标
+      "original_value": 1200, "truth_value": 1200,       // “原值”=真值
+      "misrecognized_value": 2200, "ocr_value": 2200,    // “误识值”
+      "坐标": [1, 1], "原值": 1200, "误识值": 2200
+    }
+    // …错两格时有两个元素
+  ]
+}
+```
+
+行列合计由所选真值表直接求和（不依赖是否已在凭据模块录入核准合计）。
+
+### 程序化调用
+
+```bash
+# 表单 / JSON 均可；format=json 时凑齐返回 200+附件 JSON，凑不齐返回 409+报告
+curl -X POST http://localhost:5000/sampling/build?format=json \
+  -H 'Content-Type: application/json' \
+  -d '{"table_ids":[1,2],"one_1":24,"two_1":24,"one_2":4,"two_2":0}'
+```
+
+组包结果（含 token、完整文档）保存在新增的 `sampling_packages` 表中，
+旧数据库启动时由 `init_db` 幂等建表。
+
 ## 技术实现要点
 
 - 候选枚举：无错（1 张）、一格一位错、两格各一位错，去重后 4×4 约 14.8 万张；
 - 合计索引：`合计条目 → 取值 → 候选 id 集合`，子集可行性用集合交计算；
 - 矛盾细分：行列总和直检 + Dinic 最大流判断 0..9999 有界整数表可行性；
-- 持久化：SQLite（外键级联、事务化失效），四张表
-  `datasets / margins / vouchers / voucher_margins`；
+- 持久化：SQLite（外键级联、事务化失效），五张表
+  `datasets / margins / vouchers / voucher_margins / sampling_packages`；
+- 抽测包：组合容量公式 + 惰性错例流 + 整包键去重 + Kuhn 联合分配，
+  候选表不整体物化，入选数受名额上限约束；
 - Web：Flask 3 + gunicorn（单 worker + 线程，适配 CPU/内存特征）。
 
 ## 目录结构
@@ -41,13 +139,17 @@ SQLite 凭据。被引用合计一旦修改，凭据立即失效。
 ├── docker-compose.yml
 ├── requirements.txt
 ├── errata_app/
-│   ├── app.py              # Flask 路由与页面流程
+│   ├── app.py              # Flask 路由与页面流程（含 /sampling 抽测包）
 │   ├── solver.py           # 候选枚举、最少合计证明、矛盾/反例判定
+│   ├── sampling.py         # 抽测包：容量/错例流/整包去重分配/JSON 文档
 │   ├── validation.py       # CSV 与表单校验
-│   ├── db.py               # SQLite 表结构与凭据失效事务
-│   ├── templates/          # 5 个页面模板
+│   ├── db.py               # SQLite 表结构、凭据失效事务、抽测包持久化
+│   ├── templates/          # 7 个页面模板（含 sampling.html/package.html）
 │   ├── samples/            # 网页样例 CSV、操作指南与预期结果
-│   └── tests/              # 28 项 unittest（求解器 + Web 全流程）
+│   └── tests/              # 56 项 unittest（求解器/Web/抽测包）
+├── scratch/
+│   ├── smoke_http.py       # 原凭据全流程真实 HTTP 冒烟
+│   └── smoke_sampling.py   # 抽测包凑齐/凑不齐/去重/4x4 真实 HTTP 冒烟
 └── README.md
 ```
 
@@ -90,9 +192,28 @@ gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 errata_app.app:app
 python -I -m unittest discover -s errata_app/tests -p 'test_*.py' -v
 ```
 
-覆盖：一位误识邻域、候选枚举规模与模型约束、最少条目证明与最小性、
-反例候选必须满足已录合计、三类矛盾原因、CSV/表单校验、Web 上传/分析/
-凭据生成、引用即失效与未引用不影响、同值重写不误伤等。
+> 若依赖装在 user site（`pip install --user`），`-I` 会屏蔽 user site，
+> 此时改用 `python3 -m unittest discover -s errata_app/tests -p 'test_*.py'`
+> 即可；Docker / venv 内不存在该差异。
+
+共 56 项：原有 29 项覆盖一位误识邻域、候选枚举规模与模型约束、最少条目证明
+与最小性、反例候选、三类矛盾原因、CSV/表单校验、Web 上传/分析/凭据生成、
+引用即失效与未引用不影响、同值重写不误伤；新增 27 项覆盖抽测包容量公式、
+错例流数量/唯一性、整包去重、增广分配、凑齐/凑不齐 JSON 门禁、
+表单边界（>4 表、名额越界、勾选项为 0）、JSON 请求体与 4×4 性能/名额内存约束。
+
+真实 HTTP 冒烟（先按“本地直接运行”或 gunicorn 在某端口起服务，并准备全新
+`ERRATA_DB_PATH`）：
+
+```bash
+# 终端 A
+ERRATA_DB_PATH=/tmp/smoke.db gunicorn --bind 127.0.0.1:5061 \
+    --workers 1 --threads 4 errata_app.app:app
+# 终端 B
+python3 scratch/smoke_sampling.py http://127.0.0.1:5061
+# 原有凭据全流程（固定打 5058，需另起 --bind 127.0.0.1:5058 的全新实例）
+python3 scratch/smoke_http.py
+```
 
 ## 已知边界与待补事项
 
@@ -103,4 +224,9 @@ python -I -m unittest discover -s errata_app/tests -p 'test_*.py' -v
   多位/更多格，需在 `solver.enumerate_candidates` 中扩展枚举参数；
 - 当前未做用户登录与操作审计（合计修改历史仅保留快照对比，未提供时间线页面），
   多编辑协同场景建议补鉴权与审计日志；
-- 凭据页适合浏览器打印，尚未导出 PDF/盖章版式。
+- 凭据页适合浏览器打印，尚未导出 PDF/盖章版式；
+- 抽测包结果会以 token 为主键存入 `sampling_packages`，目前没有历史列表与
+  定期清理任务；token 为不可枚举的随机串，但部署到公网前仍建议补鉴权与保留期；
+- 抽测包名额固定为每档 0..24、底表至多 4 张（与试跑约定一致）；若以后调整，
+  改 `sampling.MAX_TABLES / TIER_MAX` 与配置页 `max` 即可，容量公式与分配器
+  不依赖这些上限。

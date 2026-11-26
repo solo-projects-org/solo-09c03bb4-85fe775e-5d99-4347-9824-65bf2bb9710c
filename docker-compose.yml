@@ -1,0 +1,24 @@
+services:
+  errata:
+    build: .
+    image: errata-vouchers:latest
+    container_name: errata-vouchers
+    ports:
+      - "5000:5000"
+    environment:
+      # 容器内 SQLite 路径；数据通过命名卷持久化
+      ERRATA_DB_PATH: /data/errata.db
+      # 生产部署请改为固定随机串，例如：python -c "import secrets;print(secrets.token_hex(32))"
+      ERRATA_SECRET_KEY: "change-me-in-production"
+    volumes:
+      - errata_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  errata_data:

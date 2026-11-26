@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}凭据 #{{ v.id }}{% endblock %}
+{% block body %}
+<h1>勘误凭据 #{{ v.id }}
+  <span class="badge {{ v.status }}">{{ '有效' if v.status == 'valid' else '已失效' }}</span>
+</h1>
+<p><a href="{{ url_for('dataset_detail', dataset_id=d.id) }}">← 返回数据集 #{{ d.id }}</a></p>
+
+<div class="card">
+  <h2 style="margin-top:0">凭据正文</h2>
+  <table class="data" style="text-align:left">
+    <tr><th>数据集</th><td>#{{ d.id }} {{ d.name }}</td></tr>
+    <tr><th>勘误格</th><td>第 {{ v.target_row + 1 }} 行第 {{ v.target_col + 1 }} 列</td></tr>
+    <tr><th>原书原值（OCR 识别值）</th><td class="mono">{{ v.original_value }}</td></tr>
+    <tr><th>拟改值</th><td class="mono">{{ v.proposed_value }}</td></tr>
+    <tr><th>引用合计条目数</th><td>{{ citations | length }}</td></tr>
+    <tr><th>创建时间（UTC）</th><td>{{ v.created_at }}</td></tr>
+    {% if v.status == 'invalid' %}
+    <tr><th>失效时间（UTC）</th><td>{{ v.invalidated_at }}</td></tr>
+    {% endif %}
+  </table>
+  <p class="muted">
+    判定依据：在“至多两格、每格一位十进制数字误识”的模型下，共枚举
+    {{ result.candidate_count }} 张候选原表；满足下列引用合计的
+    {{ result.feasible_under_cited }} 张候选表在该格全部取拟改值
+    {{ v.proposed_value }}，无反例。该结论为条目数最少的合计组合
+    （{{ result.subset_size }} 条）。
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">引用的原书合计（核对依据）</h2>
+  <table class="data">
+    <thead><tr><th>条目</th><th>引用时快照值</th><th>当前值</th><th>状态</th></tr></thead>
+    <tbody>
+    {% for c in citations %}
+      <tr>
+        <td class="cite">{{ '行' if c.kind == 'row' else '列' }} {{ c.idx + 1 }} 合计</td>
+        <td class="mono">{{ c.value_at_cite }}</td>
+        <td class="mono {{ 'strike' if c.current_value != c.value_at_cite else '' }}">
+          {{ c.current_value if c.current_value is not none else '（未录入）' }}</td>
+        <td>
+          {% if c.current_value != c.value_at_cite %}
+            <span class="badge invalid">已被修改</span>
+          {% else %}
+            <span class="badge valid">一致</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if v.status == 'invalid' %}
+    <div class="flash error">
+      本凭据引用的合计已被修改，凭据自 {{ v.invalidated_at }} 起立即失效，
+      不得再作为年鉴勘误依据；如需继续勘误，请用当前合计重新发起分析。
+    </div>
+  {% else %}
+    <p class="muted">只要以上合计保持引用时的值，本凭据持续有效；
+       任一条被修改即立即失效。未被本凭据引用的合计发生更正不影响本凭据。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">OCR 原表存档</h2>
+  <table class="grid">
+    <tr><th></th>{% for j in range(d.cols_n) %}<th>列 {{ j + 1 }}</th>{% endfor %}</tr>
+    {% for i in range(d.rows_n) %}
+    <tr>
+      <th>行 {{ i + 1 }}</th>
+      {% for j in range(d.cols_n) %}
+        <td class="{{ 'target' if i == v.target_row and j == v.target_col else '' }}">{{ grid[i][j] }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">高亮格为勘误格。</p>
+</div>
+{% endblock %}

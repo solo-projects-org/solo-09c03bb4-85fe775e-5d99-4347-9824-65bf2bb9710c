@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ d.name }} · 勘误凭据管理{% endblock %}
+{% block body %}
+<h1>数据集 #{{ d.id }}：{{ d.name }}（{{ d.rows_n }}×{{ d.cols_n }}）</h1>
+<p><a href="{{ url_for('index') }}">← 返回数据集列表</a></p>
+
+<div class="card">
+  <h2 style="margin-top:0">OCR 识别表（上传原值）</h2>
+  <table class="grid">
+    <tr><th></th>{% for j in range(d.cols_n) %}<th>列 {{ j + 1 }}</th>{% endfor %}</tr>
+    {% for i in range(d.rows_n) %}
+    <tr>
+      <th>行 {{ i + 1 }}</th>
+      {% for j in range(d.cols_n) %}<td>{{ grid[i][j] }}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">每格为 0..{{ max_cell }} 的非负整数；行、列右侧列出 OCR 表自带和，供录入核准时参考。</p>
+</div>
+
+<div class="row-flex">
+  <div class="card" style="flex:1;min-width:340px">
+    <h2 style="margin-top:0">原书核准行列合计</h2>
+    <form method="post" action="{{ url_for('edit_margins', dataset_id=d.id) }}">
+      <table class="data">
+        <thead><tr><th>条目</th><th>OCR 表自带和</th><th>原书核准值（留空=未录入）</th></tr></thead>
+        <tbody>
+        {% for m in margins %}
+          <tr>
+            <td>{{ '行' if m.kind == 'row' else '列' }} {{ m.idx + 1 }} 合计</td>
+            <td class="muted">{{ ocr_margins[loop.index0] }}</td>
+            <td>
+              <input type="number" min="0" name="margin_{{ m.entry }}"
+                     value="{{ m.value if m.value is not none else '' }}">
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p><button type="submit">保存合计</button></p>
+      <p class="muted">修改被凭据引用的合计会立即把对应凭据标为失效；未引用合计的更正不影响任何凭据。</p>
+    </form>
+  </div>
+
+  <div class="card" style="flex:1;min-width:340px">
+    <h2 style="margin-top:0">发起勘误</h2>
+    <form method="post" action="{{ url_for('analyze', dataset_id=d.id) }}">
+      <label>目标格 — 行（1..{{ d.rows_n }}）</label>
+      <input type="number" min="1" max="{{ d.rows_n }}" name="target_row" required>
+      <label>目标格 — 列（1..{{ d.cols_n }}）</label>
+      <input type="number" min="1" max="{{ d.cols_n }}" name="target_col" required>
+      <label>拟改值（0..{{ max_cell }} 非负整数）</label>
+      <input type="number" min="0" max="{{ max_cell }}" name="proposed" required>
+      <p><button type="submit">寻找最少条合计证明</button></p>
+      <p class="muted">系统只在“引用合计有解且无反例”时生成凭据；矛盾或存在反例时只报告原因，不保存凭据。</p>
+    </form>
+  </div>
+</div>
+
+<h2>本数据集的凭据</h2>
+{% if vouchers %}
+<table class="data">
+  <thead><tr><th>#</th><th>目标格</th><th>原值 → 拟改值</th><th>引用条数</th><th>状态</th><th>创建时间</th><th></th></tr></thead>
+  <tbody>
+  {% for v in vouchers %}
+    <tr>
+      <td>{{ v.id }}</td>
+      <td>第 {{ v.target_row + 1 }} 行第 {{ v.target_col + 1 }} 列</td>
+      <td>{{ v.original_value }} → {{ v.proposed_value }}</td>
+      <td>{{ v.result.cited_entries | length if v.result.status == 'proven' else '—' }}</td>
+      <td><span class="badge {{ v.status }}">{{ '有效' if v.status == 'valid' else '已失效' }}</span></td>
+      <td class="muted">{{ v.created_at }}</td>
+      <td><a class="btn" href="{{ url_for('voucher_detail', voucher_id=v.id) }}">查看凭据</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">尚无凭据。成功证明拟改值后会在此列出。</p>
+{% endif %}
+{% endblock %}

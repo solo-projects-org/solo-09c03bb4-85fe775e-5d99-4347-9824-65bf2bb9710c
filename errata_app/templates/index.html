@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}数据集 · 勘误凭据管理{% endblock %}
+{% block body %}
+<h1>区县作物面积数据集</h1>
+
+<div class="card">
+  <h2 style="margin-top:0">上传 CSV（最多 4×4，格值为 0..9999 的非负整数）</h2>
+  <form method="post" action="{{ url_for('new_dataset') }}" enctype="multipart/form-data">
+    <label>数据集名称</label>
+    <input type="text" name="name" placeholder="例如：2024 年《××年鉴》小麦面积表">
+    <label>CSV 文件（首行即数据，不含表头；也可直接粘贴文本替代上传）</label>
+    <input type="file" name="csv_file" accept=".csv,text/csv">
+    <p class="muted">或粘贴 CSV 文本：</p>
+    <textarea name="csv_text" rows="4" placeholder="1200,340&#10;560,780"></textarea>
+    <p><button type="submit">上传并建表</button></p>
+  </form>
+  <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+  <form method="post" action="{{ url_for('load_sample') }}" class="inline">
+    <button type="submit" name="sample" value="sample3x3" class="secondary">载入 3×3 网页样例</button>
+    <button type="submit" name="sample" value="sample4x4" class="secondary">载入 4×4 上限样例</button>
+  </form>
+</div>
+
+<h2>已上传数据集</h2>
+{% if datasets %}
+<table class="data">
+  <thead><tr><th>#</th><th>名称</th><th>规模</th><th>凭据数</th><th>创建时间</th><th>操作</th></tr></thead>
+  <tbody>
+  {% for d in datasets %}
+    <tr>
+      <td>{{ d.id }}</td>
+      <td>{{ d.name }}</td>
+      <td>{{ d.rows_n }}×{{ d.cols_n }}</td>
+      <td>{{ d.voucher_count }}</td>
+      <td class="muted">{{ d.created_at }}</td>
+      <td>
+        <a class="btn" href="{{ url_for('dataset_detail', dataset_id=d.id) }}">打开</a>
+        <form method="post" action="{{ url_for('delete_dataset', dataset_id=d.id) }}"
+              class="inline" onsubmit="return confirm('删除数据集 #{{ d.id }} 及其全部凭据？');">
+          <button type="submit" class="danger">删除</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">暂无数据集，请先上传 CSV 或载入样例。</p>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">判定规则说明</h2>
+  <ol class="muted" style="padding-left:20px">
+    <li>假定 OCR 表与原书真表至多有两个格不同，且每个不同格恰好误识一位十进制数字（位数不变，多位数首位不得变 0）。</li>
+    <li>编辑录入原书核准的行、列合计，并指定一格及拟改值。</li>
+    <li>系统枚举全部候选原表，按条目数从少到多搜索合计子集：子集必须有候选满足（引用合计有解），且满足子集的每张候选表在该格都取拟改值（无反例）。</li>
+    <li>全份合计矛盾或任何子集都存在反例时，系统给出原因；只有成功证明才生成并保存凭据。</li>
+  </ol>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}勘误凭据管理{% endblock %}</title>
+  <style>
+    :root { --line:#d7dce3; --ink:#1f2733; --muted:#66707d; --brand:#245b8f;
+            --ok-bg:#e8f4ec; --ok:#1d6b39; --warn-bg:#fdf3e0; --warn:#8a5a12;
+            --err-bg:#fbe9e9; --err:#962828; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "Noto Sans CJK SC","PingFang SC","Microsoft YaHei",
+            "Source Han Sans SC",sans-serif; color:var(--ink); background:#f5f6f8;
+            line-height:1.55; }
+    header { background:var(--brand); color:#fff; padding:14px 24px; }
+    header a { color:#fff; text-decoration:none; margin-right:18px; font-weight:600; }
+    main { max-width:1080px; margin:24px auto; padding:0 20px; }
+    h1 { font-size:20px; margin:0 0 16px; }
+    h2 { font-size:17px; margin:26px 0 10px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:8px;
+            padding:18px 20px; margin-bottom:18px; }
+    table.grid, table.data { border-collapse:collapse; margin:8px 0; }
+    table.grid td, table.grid th, table.data td, table.data th {
+        border:1px solid var(--line); padding:6px 12px; text-align:center;
+        min-width:58px; font-variant-numeric: tabular-nums; }
+    table.grid th { background:#eef2f7; color:var(--muted); font-weight:600; }
+    td.target { background:#fff2cc; font-weight:700; }
+    td.cite { background:#e3eefb; }
+    form.inline { display:inline; }
+    label { display:block; font-size:13px; color:var(--muted); margin:8px 0 4px; }
+    input[type=text], input[type=number], textarea, select {
+        padding:7px 9px; border:1px solid var(--line); border-radius:6px;
+        font-size:14px; min-width:120px; }
+    textarea { width:100%; font-family:ui-monospace,Menlo,Consolas,monospace; }
+    button, .btn { background:var(--brand); color:#fff; border:0; border-radius:6px;
+            padding:8px 16px; font-size:14px; cursor:pointer; text-decoration:none;
+            display:inline-block; }
+    button.secondary { background:#5c6b7d; }
+    button.danger { background:#a23a3a; }
+    .flash { padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:14px; }
+    .flash.ok { background:var(--ok-bg); color:var(--ok); }
+    .flash.warn { background:var(--warn-bg); color:var(--warn); }
+    .flash.error { background:var(--err-bg); color:var(--err); }
+    .badge { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px;
+             font-weight:600; }
+    .badge.valid { background:var(--ok-bg); color:var(--ok); }
+    .badge.invalid { background:var(--err-bg); color:var(--err); }
+    .badge.proven { background:var(--ok-bg); color:var(--ok); }
+    .badge.contradiction { background:var(--err-bg); color:var(--err); }
+    .badge.counterexample { background:var(--warn-bg); color:var(--warn); }
+    .muted { color:var(--muted); font-size:13px; }
+    .row-flex { display:flex; gap:26px; flex-wrap:wrap; align-items:flex-start; }
+    .mono { font-family:ui-monospace,Menlo,Consolas,monospace; }
+    .reason { background:#f7f9fc; border-left:4px solid var(--brand);
+              padding:10px 14px; margin:10px 0; }
+    .strike { text-decoration:line-through; color:var(--err); }
+  </style>
+</head>
+<body>
+<header>
+  <a href="{{ url_for('index') }}">数据集</a>
+  <a href="{{ url_for('voucher_list') }}">勘误凭据</a>
+  <span style="float:right;opacity:.85">地方志年鉴勘误凭据系统</span>
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block body %}{% endblock %}
+</main>
+</body>
+</html>

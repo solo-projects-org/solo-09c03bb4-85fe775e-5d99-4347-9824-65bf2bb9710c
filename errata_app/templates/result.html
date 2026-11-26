@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}勘误分析结果{% endblock %}
+{% block body %}
+<h1>勘误分析结果 · 数据集 #{{ d.id }}：{{ d.name }}</h1>
+<p><a href="{{ url_for('dataset_detail', dataset_id=d.id) }}">← 返回数据集</a></p>
+
+<div class="card">
+  <p>
+    目标格：<strong>第 {{ tr + 1 }} 行第 {{ tc + 1 }} 列</strong>，
+    OCR 原值 <strong>{{ grid[tr][tc] }}</strong>，
+    拟改值 <strong>{{ proposed }}</strong>
+    {% if result.status == 'proven' and result.same_as_original %}
+      <span class="muted">（拟改值与原值相同）</span>
+    {% endif %}
+  </p>
+  <p>
+    结论：
+    {% if result.status == 'proven' %}
+      <span class="badge proven">证明成立，已生成凭据 #{{ voucher_id }}</span>
+    {% elif result.status == 'counterexample' %}
+      <span class="badge counterexample">存在反例，无法证明</span>
+    {% else %}
+      <span class="badge contradiction">合计矛盾，无可行原表</span>
+    {% endif %}
+  </p>
+  <p class="muted">
+    误识模型下共枚举候选原表 {{ result.candidate_count }} 张
+    （含 OCR 表本身；假定至多两格、每格一位十进制数字误识）。
+  </p>
+</div>
+
+{% if result.status == 'proven' %}
+<div class="card">
+  <h2 style="margin-top:0">条目最少的引用合计（{{ result.subset_size }} 条）</h2>
+  <p class="muted">满足这 {{ result.subset_size }} 条合计的候选原表共
+     {{ result.feasible_under_cited }} 张，它们在目标格上全部等于
+     {{ proposed }}，读者可凭下列合计在原书逐条核对。</p>
+  <table class="data">
+    <thead><tr><th>引用条目</th><th>引用时合计值</th><th>含义</th></tr></thead>
+    <tbody>
+    {% for c in result.cited_entries %}
+      <tr>
+        <td class="cite">{{ '行' if c.kind == 'row' else '列' }} {{ c.index + 1 }} 合计</td>
+        <td class="mono">{{ c.value }}</td>
+        <td class="muted">{{ '该行（第' if c.kind == 'row' else '该列（第' }}{{ c.index + 1 }} 项）所有格值之和</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p>
+    <a class="btn" href="{{ url_for('voucher_detail', voucher_id=voucher_id) }}">查看 / 打印凭据 #{{ voucher_id }}</a>
+    全份已录入合计下的可行候选表数：{{ result.feasible_under_full_margins }}。
+  </p>
+</div>
+
+{% elif result.status == 'counterexample' %}
+<div class="card">
+  <h2 style="margin-top:0">反例候选原表</h2>
+  <div class="reason">{{ result.reason }}</div>
+  <p>该候选表满足全部已录入合计，但目标格取值为
+     <strong>{{ result.counterexample_target }}</strong>（拟改值为 {{ proposed }}）。
+     全份合计下共有 {{ result.full_feasible_count }} 张可行候选表。</p>
+  <table class="grid">
+    <tr><th></th>{% for j in range(d.cols_n) %}<th>列 {{ j + 1 }}</th>{% endfor %}</tr>
+    {% for i in range(d.rows_n) %}
+    <tr>
+      <th>行 {{ i + 1 }}</th>
+      {% for j in range(d.cols_n) %}
+        <td class="{{ 'target' if i == tr and j == tc else '' }}">{{ result.counterexample[i][j] }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">相对 OCR 表的改动：
+    {% for e in result.counterexample_error_cells %}
+      第 {{ e.row + 1 }} 行第 {{ e.col + 1 }} 列 {{ e.ocr }}→{{ e.candidate }}
+      （{{ e.digit_errors }} 位数字不同）{% if not loop.last %}；{% endif %}
+    {% else %}无改动{% endfor %}。
+  </p>
+  <p class="muted">处理建议：补录或核准更多行列合计后重试；系统不会为存在反例的结论保存凭据。</p>
+</div>
+
+{% else %}
+<div class="card">
+  <h2 style="margin-top:0">矛盾原因</h2>
+  <div class="reason">{{ result.reason }}</div>
+  <p class="muted">请核对录入的原书合计；矛盾状态下不存在候选原表，无法生成凭据。</p>
+</div>
+{% endif %}
+{% endblock %}

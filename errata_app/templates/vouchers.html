@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}全部凭据{% endblock %}
+{% block body %}
+<h1>勘误凭据总览</h1>
+<table class="data">
+  <thead><tr><th>凭据 #</th><th>数据集</th><th>目标格</th><th>原值 → 拟改值</th>
+    <th>引用合计</th><th>状态</th><th>创建时间</th><th></th></tr></thead>
+  <tbody>
+  {% for v in vouchers %}
+    <tr>
+      <td>{{ v.id }}</td>
+      <td>#{{ v.dataset_id }} {{ v.dataset_name }}</td>
+      <td>第 {{ v.target_row + 1 }} 行第 {{ v.target_col + 1 }} 列</td>
+      <td class="mono">{{ v.original_value }} → {{ v.proposed_value }}</td>
+      <td>
+        {% for c in v.result.cited_entries %}
+          {{ '行' if c.kind == 'row' else '列' }}{{ c.index + 1 }}={{ c.value }}{% if not loop.last %}，{% endif %}
+        {% endfor %}
+      </td>
+      <td><span class="badge {{ v.status }}">{{ '有效' if v.status == 'valid' else '已失效' }}</span></td>
+      <td class="muted">{{ v.created_at }}</td>
+      <td><a class="btn" href="{{ url_for('voucher_detail', voucher_id=v.id) }}">查看</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="muted">尚无凭据。证明成立后才会保存。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
